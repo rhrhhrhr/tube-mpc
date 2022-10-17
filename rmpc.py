@@ -662,7 +662,7 @@ class RobustMPC:
                 ca.reshape(u[:, -1], -1, 1)
             )
 
-            X0 = ca.horzcat(X0[:, 1:], ca.reshape(X0[:, -1], -1, 1))  # 这两步是动态规划的思想
+            X0 = ca.horzcat(X0[:, 1:], ca.reshape(X0[:, -1], -1, 1))  # 这两步是利用到上一步预测的一些结果到下一时刻求优化的初值中去
 
         x_cat_1 = cat_states[0, :][0]
         x_cat_2 = cat_states[1, :][0]
