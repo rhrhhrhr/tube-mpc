@@ -508,12 +508,12 @@ class RobustMPC:
     # Ca sa di求解器类型转换
 
     @staticmethod
-    def lqr_k_cal(a: np.matrix, b: np.matrix, q: np.matrix, r: np.matrix) -> np.matrix:
+    def lqr_p_k_cal(a: np.matrix, b: np.matrix, q: np.matrix, r: np.matrix):
         p = np.mat(lin.solve_discrete_are(a, b, q, r))  # 求Riccati方程
         k = lin.inv(r + b.T * p * b) * b.T * p * a
 
-        return k
-    # 通过离散lqr计算出用来镇定实际状态和名义系统状态之差的矩阵K
+        return p, k
+    # 通过离散lqr计算出终端惩罚矩阵P和用来镇定实际状态和名义系统状态之差的矩阵K
 
     def main(self, x_ini: list, x_bound: dict, u_bound: dict, sys_para: dict, z: dict, xf: dict):
         # x_ini是初值，
@@ -683,7 +683,6 @@ if __name__ == "__main__":
     B = np.mat([[0.5], [1]])
     Q = np.mat([[1, 0], [0, 1]])
     R = np.mat([[0.01]])
-    P = np.mat([[2.0066, 0.5099], [0.5099, 1.2682]])
     x_initial = [-5, -2]
     A_W = np.mat([[1, 0], [-1, 0], [0, 1], [0, -1]])  # 干扰的约束Aw <= b中的A
     b_W = np.mat([[0.1, 0.1, 0.1, 0.1]])              # 干扰约束中的b
@@ -697,7 +696,7 @@ if __name__ == "__main__":
     mink = Minkowski(rem, po)
     robust_mpc = RobustMPC(mink, po, rem)
 
-    K = robust_mpc.lqr_k_cal(A, B, Q, R)
+    P, K = robust_mpc.lqr_p_k_cal(A, B, Q, R)
     A_K = A - B * K
     A_Z, b_Z = robust_mpc.z_cal(A_K, A_W, b_W)
     A_D, b_D, A_X_Z, b_X_Z, U_KZ_inf, U_KZ_sup = robust_mpc.domain_of_xf(A_X, b_X, U_min, U_max, A_Z, b_Z, K)
