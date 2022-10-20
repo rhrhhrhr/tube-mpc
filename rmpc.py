@@ -257,38 +257,41 @@ class TubeMPC(Minkowski):
     def __init__(self, x_ini: list, sys_para: dict, sys_cons: dict):
         self.x_ini = x_ini
         self.sys_para = sys_para
-        P, K = self.lqr_p_k_cal(sys_para['A'], sys_para['B'], sys_para['Q'], sys_para['R'])
-        self.sys_para['P'] = P
-        self.sys_para['K'] = K
+        self.sys_cons = sys_cons
+        self.sys_para['P'], self.sys_para['K'] = self.lqr_p_k_cal(sys_para['A'], sys_para['B'], sys_para['Q'], sys_para['R'])
         # 用lqr方法求终端惩罚矩阵P和状态反馈矩阵K
-
-        A_K = sys_para['A'] - sys_para['B'] * K
-        A_Z, b_Z = self.z_cal(A_K, sys_cons['W']['A'], sys_cons['W']['b'])
-        self.z = {'A': A_Z, 'b': b_Z}
-        # 计算鲁棒正不变集
-
-        A_D, b_D, A_X_Z, b_X_Z, U_KZ_inf, U_KZ_sup = self.domain_of_xf(sys_cons['X']['A'], sys_cons['X']['b'],
-                                                                       sys_cons['U']['min'], sys_cons['U']['max'],
-                                                                       A_Z, b_Z, K)
-        # 用于计算X-Z和U-KZ，以及他们的交集作为求解Xf时的定义域
-        X_Z_sup = float(b_X_Z)
-        self.x_bound = {'inf': None, 'sup': X_Z_sup}
-        self.u_bound = {'inf': U_KZ_inf, 'sup': U_KZ_sup}
-
-        A_Xf, b_Xf = self.xf_cal(A_D, b_D, A_K)
-        A_Xf_Z, b_Xf_Z = self.poly_plus(A_Xf, b_Xf, A_Z, b_Z)
-        self.xf = {'A': A_Xf, 'b': b_Xf}
-        self.xf_z = {'A': A_Xf_Z, 'b': b_Xf_Z}
-        # 计算终端区域Xf
-
-        A_fea, b_fea = self.feasible_set(sys_para['A'], sys_para['B'], A_X_Z, b_X_Z, U_KZ_inf, U_KZ_sup, A_Xf, b_Xf, sys_para['n'])
-        A_fea_Z, b_fea_Z = self.poly_plus(A_fea, b_fea, A_Z, b_Z)
-        self.fea = {'A': A_fea, 'b': b_fea}
-        self.fea_z = {'A': A_fea_Z, 'b': b_fea_Z}
-        # 计算可行域
-
+        self.set = self.all_set_cal()
         self.t_list = [sys_para['d_t'] * num for num in range(0, int(sys_para['T'] / sys_para['d_t']))]
         # 产生时间序列用于画图
+
+    def all_set_cal(self):
+        A_K = self.sys_para['A'] - self.sys_para['B'] * self.sys_para['K']
+        # 计算A_K
+        A_Z, b_Z = self.z_cal(A_K, self.sys_cons['W']['A'], self.sys_cons['W']['b'])
+        # 计算鲁棒正不变集
+        A_D, b_D, A_X_Z, b_X_Z, U_KZ_inf, U_KZ_sup = self.domain_of_xf(self.sys_cons['X']['A'], self.sys_cons['X']['b'],
+                                                                       self.sys_cons['U']['min'], self.sys_cons['U']['max'],
+                                                                       A_Z, b_Z, self.sys_para['K'])
+        # 用于计算X-Z和U-KZ，以及他们的交集作为求解Xf时的定义域
+        A_Xf, b_Xf = self.xf_cal(A_D, b_D, A_K)
+        # 计算终端区域Xf
+        A_Xf_Z, b_Xf_Z = self.poly_plus(A_Xf, b_Xf, A_Z, b_Z)
+        # 计算Xf + Z
+        A_fea, b_fea = self.feasible_set(self.sys_para['A'], self.sys_para['B'], A_X_Z, b_X_Z, U_KZ_inf, U_KZ_sup, A_Xf, b_Xf,
+                                         self.sys_para['n'])
+        # 计算可行域
+        A_fea_Z, b_fea_Z = self.poly_plus(A_fea, b_fea, A_Z, b_Z)
+        # 计算可行域加Z
+
+        all_set = {'Z': {'A': A_Z, 'b': b_Z},
+                   'Xf': {'A': A_Xf, 'b': b_Xf},
+                   'Xf+Z': {'A': A_Xf_Z, 'b': b_Xf_Z},
+                   'fea': {'A': A_fea, 'b': b_fea},
+                   'fea+Z': {'A': A_fea_Z, 'b': b_fea_Z},
+                   'X-Z': {'inf': None, 'sup': float(b_X_Z)},
+                   'U-KZ': {'inf': U_KZ_inf, 'sup': U_KZ_sup}}
+
+        return all_set
 
     def z_cal(self, a: np.matrix, a_w: np.matrix, b_w: np.matrix):
         alpha = 0.2
@@ -541,9 +544,9 @@ class TubeMPC(Minkowski):
 
     def ol_opt(self):
         # x_ini是初值，
-        z_num = self.z['A'].shape[0]
+        z_num = self.set['Z']['A'].shape[0]
 
-        xf_num = self.xf['A'].shape[0]
+        xf_num = self.set['Xf']['A'].shape[0]
 
         x_1 = ca.SX.sym('x_1')
         x_2 = ca.SX.sym('x_2')
@@ -568,8 +571,8 @@ class TubeMPC(Minkowski):
 
         K = ca.SX(self.sys_para['K'])  # 状态反馈矩阵
 
-        Z_A = ca.SX(self.z['A'])  # 最小的鲁棒不变集
-        Xf_A = ca.SX(self.xf['A'])  # 终端约束
+        Z_A = ca.SX(self.set['Z']['A'])  # 最小的鲁棒不变集
+        Xf_A = ca.SX(self.set['Xf']['A'])  # 终端约束
 
         st_fun = A @ states + B @ controls + omega
         st_fun_nom = A @ states + B @ controls
@@ -622,21 +625,21 @@ class TubeMPC(Minkowski):
         lbx[1: n_states * (self.sys_para['n'] + 1): n_states] = -ca.inf  # x_2 的下界为负无穷
 
         ubx[0: n_states * (self.sys_para['n'] + 1): n_states] = ca.inf  # x_1 的上界为正无穷
-        ubx[1: n_states * (self.sys_para['n'] + 1): n_states] = self.x_bound['sup']  # x_2 的上界
+        ubx[1: n_states * (self.sys_para['n'] + 1): n_states] = self.set['X-Z']['sup']  # x_2 的上界
 
-        lbx[n_states * (self.sys_para['n'] + 1):] = self.u_bound['inf']  # u 的下界
-        ubx[n_states * (self.sys_para['n'] + 1):] = self.u_bound['sup']  # u 的上界
+        lbx[n_states * (self.sys_para['n'] + 1):] = self.set['U-KZ']['inf']  # u 的下界
+        ubx[n_states * (self.sys_para['n'] + 1):] = self.set['U-KZ']['sup']  # u 的上界
 
         lbg = ca.DM.zeros((n_states * self.sys_para['n'] + z_num + xf_num, 1))
         ubg = ca.DM.zeros((n_states * self.sys_para['n'] + z_num + xf_num, 1))
 
         for i in range(0, z_num):
             lbg[i] = -ca.inf
-            ubg[i] = float(self.z['b'][0, i])  # x-x0始终在Z内
+            ubg[i] = float(self.set['Z']['b'][0, i])  # x-x0始终在Z内
 
         for i in range(0, xf_num):
             lbg[z_num + n_states * self.sys_para['n'] + i] = -ca.inf
-            ubg[z_num + n_states * self.sys_para['n'] + i] = float(self.xf['b'][0, i])  # x(N)在终端区域内
+            ubg[z_num + n_states * self.sys_para['n'] + i] = float(self.set['Xf']['b'][0, i])  # x(N)在终端区域内
 
         args = {'lbg': lbg,
                 'ubg': ubg,
@@ -701,10 +704,10 @@ class TubeMPC(Minkowski):
     def res_plot(self):
         X_1, X_2, x_nom_1, x_nom_2, u_opt, controller_x, controller_u = tube_mpc.ol_opt()
 
-        self.plot(self.z['A'], self.z['b'], 'r')
+        self.plot(self.set['Z']['A'], self.set['Z']['b'], 'r')
         plt.grid(True)
         plt.show()
-        self.plot(self.xf['A'], self.xf['b'], 'r')
+        self.plot(self.set['Xf']['A'], self.set['Xf']['b'], 'r')
         plt.grid(True)
         plt.show()
 
@@ -719,10 +722,10 @@ class TubeMPC(Minkowski):
             plt.plot(controller_x[item][0], controller_x[item][1], '-.')'''
         plt.plot(X_1[:-1], X_2[:-1], '--')
         plt.plot(x_nom_1[1:], x_nom_2[1:])
-        self.plot(self.xf['A'], self.xf['b'], 'b')
-        self.plot(self.xf_z['A'], self.xf_z['b'], 'r')
+        self.plot(self.set['Xf']['A'], self.set['Xf']['b'], 'b')
+        self.plot(self.set['Xf+Z']['A'], self.set['Xf+Z']['b'], 'r')
         for item in range(0, len(x_nom_1) - 1):
-            A_nom_Z, b_nom_Z = self.point_poly_plus(np.mat([[x_nom_1[item + 1]], [x_nom_2[item + 1]]]), self.z['A'], self.z['b'],)
+            A_nom_Z, b_nom_Z = self.point_poly_plus(np.mat([[x_nom_1[item + 1]], [x_nom_2[item + 1]]]), self.set['Z']['A'], self.set['Z']['b'])
             self.plot(A_nom_Z, b_nom_Z, 'g')
         plt.grid(True)
         plt.show()
@@ -730,8 +733,8 @@ class TubeMPC(Minkowski):
         plt.plot(self.t_list, u_opt[1:])
         plt.show()
 
-        self.plot(self.fea['A'], self.fea['b'], 'r')
-        self.plot(self.fea_z['A'], self.fea_z['b'], 'b')
+        self.plot(self.set['fea']['A'], self.set['fea']['b'], 'r')
+        self.plot(self.set['fea+Z']['A'], self.set['fea+Z']['b'], 'b')
         plt.grid(True)
         plt.show()
     # 用于画一些结果，可以根据需求自己改
