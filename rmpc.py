@@ -261,6 +261,9 @@ class TubeMPC(Minkowski):
         self.sys_para['P'], self.sys_para['K'] = self.lqr_p_k_cal(sys_para['A'], sys_para['B'], sys_para['Q'], sys_para['R'])
         # 用lqr方法求终端惩罚矩阵P和状态反馈矩阵K
         self.set = self.all_set_cal()
+        # 计算所有用到的集合
+        self.result = self.ol_opt()
+        # 计算仿真结果
         self.t_list = [sys_para['d_t'] * num for num in range(0, int(sys_para['T'] / sys_para['d_t']))]
         # 产生时间序列用于画图
 
@@ -692,18 +695,18 @@ class TubeMPC(Minkowski):
 
             X0 = ca.horzcat(X0[:, 1:], ca.reshape(X0[:, -1], -1, 1))  # 这两步是利用到上一步预测的一些结果到下一时刻求优化的初值中去
 
-        x_cat_1 = cat_states[0, :][0]
-        x_cat_2 = cat_states[1, :][0]
-        x_nom_cat_1 = cat_nom_states[0, :][0]
-        x_nom_cat_2 = cat_nom_states[1, :][0]
-        u_cat = cat_controls.T[0]  # 转换成列表
+        res = {'real state 1': cat_states[0, :][0],
+               'real state 2': cat_states[1, :][0],
+               'nominal state 1': cat_nom_states[0, :][0],
+               'nominal state 2': cat_nom_states[1, :][0],
+               'real control': cat_controls.T[0],
+               'predicted state': cat_controller_states,
+               'predicted control': cat_controller_controls}  # 将结果打包
 
-        return x_cat_1, x_cat_2, x_nom_cat_1, x_nom_cat_2, u_cat, cat_controller_states, cat_controller_controls
+        return res
     # tube mpc在线优化
 
     def res_plot(self):
-        X_1, X_2, x_nom_1, x_nom_2, u_opt, controller_x, controller_u = tube_mpc.ol_opt()
-
         self.plot(self.set['Z']['A'], self.set['Z']['b'], 'r')
         plt.grid(True)
         plt.show()
@@ -713,24 +716,27 @@ class TubeMPC(Minkowski):
 
         # 以下被注释的代码用于观察控制器内预测的状态和输入，需要时可以查看
         # 这一段是画控制器内预测的控制输入
-        '''t_controller_list = [0.1 * i for i in range(0, sim_n)]
-        for item in range(0, len(controller_u)):
-            plt.plot(t_controller_list, controller_u[item][0])
+        '''t_controller_list = [0.1 * i for i in range(0, self.sys_para['n'])]
+        for item in range(0, len(self.result['predicted control'])):
+            plt.plot(t_controller_list, self.result['predicted control'][item][0])
             plt.show()'''
         # 这一段是画控制器内预测的状态
-        '''for item in range(0, len(controller_x)):
-            plt.plot(controller_x[item][0], controller_x[item][1], '-.')'''
-        plt.plot(X_1[:-1], X_2[:-1], '--')
-        plt.plot(x_nom_1[1:], x_nom_2[1:])
+        '''for item in range(0, len(self.result['predicted state'])):
+            plt.plot(self.result['predicted state'][item][0], self.result['predicted state'][item][1], '-.')'''
+
+        plt.plot(self.result['real state 1'][:-1], self.result['real state 2'][:-1], '--')
+        plt.plot(self.result['nominal state 1'][1:], self.result['nominal state 2'][1:])
         self.plot(self.set['Xf']['A'], self.set['Xf']['b'], 'b')
         self.plot(self.set['Xf+Z']['A'], self.set['Xf+Z']['b'], 'r')
-        for item in range(0, len(x_nom_1) - 1):
-            A_nom_Z, b_nom_Z = self.point_poly_plus(np.mat([[x_nom_1[item + 1]], [x_nom_2[item + 1]]]), self.set['Z']['A'], self.set['Z']['b'])
+        for item in range(0, len(self.result['nominal state 1']) - 1):
+            A_nom_Z, b_nom_Z = self.point_poly_plus(np.mat([[self.result['nominal state 1'][item + 1]],
+                                                            [self.result['nominal state 2'][item + 1]]]),
+                                                    self.set['Z']['A'], self.set['Z']['b'])
             self.plot(A_nom_Z, b_nom_Z, 'g')
         plt.grid(True)
         plt.show()
 
-        plt.plot(self.t_list, u_opt[1:])
+        plt.plot(self.t_list, self.result['real control'][1:])
         plt.show()
 
         self.plot(self.set['fea']['A'], self.set['fea']['b'], 'r')
