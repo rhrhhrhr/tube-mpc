@@ -260,13 +260,17 @@ class TubeMPC(Minkowski):
         P, K = self.lqr_p_k_cal(sys_para['A'], sys_para['B'], sys_para['Q'], sys_para['R'])
         self.sys_para['P'] = P
         self.sys_para['K'] = K
+        # 用lqr方法求终端惩罚矩阵P和状态反馈矩阵K
 
         A_K = sys_para['A'] - sys_para['B'] * K
         A_Z, b_Z = self.z_cal(A_K, sys_cons['W']['A'], sys_cons['W']['b'])
         self.z = {'A': A_Z, 'b': b_Z}
+        # 计算鲁棒正不变集
 
-        A_D, b_D, A_X_Z, b_X_Z, U_KZ_inf, U_KZ_sup \
-            = self.domain_of_xf(sys_cons['X']['A'], sys_cons['X']['b'], sys_cons['U']['min'], sys_cons['U']['max'], A_Z, b_Z, K)
+        A_D, b_D, A_X_Z, b_X_Z, U_KZ_inf, U_KZ_sup = self.domain_of_xf(sys_cons['X']['A'], sys_cons['X']['b'],
+                                                                       sys_cons['U']['min'], sys_cons['U']['max'],
+                                                                       A_Z, b_Z, K)
+        # 用于计算X-Z和U-KZ，以及他们的交集作为求解Xf时的定义域
         X_Z_sup = float(b_X_Z)
         self.x_bound = {'inf': None, 'sup': X_Z_sup}
         self.u_bound = {'inf': U_KZ_inf, 'sup': U_KZ_sup}
@@ -275,13 +279,16 @@ class TubeMPC(Minkowski):
         A_Xf_Z, b_Xf_Z = self.poly_plus(A_Xf, b_Xf, A_Z, b_Z)
         self.xf = {'A': A_Xf, 'b': b_Xf}
         self.xf_z = {'A': A_Xf_Z, 'b': b_Xf_Z}
+        # 计算终端区域Xf
 
         A_fea, b_fea = self.feasible_set(sys_para['A'], sys_para['B'], A_X_Z, b_X_Z, U_KZ_inf, U_KZ_sup, A_Xf, b_Xf, sys_para['n'])
         A_fea_Z, b_fea_Z = self.poly_plus(A_fea, b_fea, A_Z, b_Z)
         self.fea = {'A': A_fea, 'b': b_fea}
         self.fea_z = {'A': A_fea_Z, 'b': b_fea_Z}
+        # 计算可行域
 
         self.t_list = [sys_para['d_t'] * num for num in range(0, int(sys_para['T'] / sys_para['d_t']))]
+        # 产生时间序列用于画图
 
     def z_cal(self, a: np.matrix, a_w: np.matrix, b_w: np.matrix):
         alpha = 0.2
@@ -727,6 +734,7 @@ class TubeMPC(Minkowski):
         self.plot(self.fea_z['A'], self.fea_z['b'], 'b')
         plt.grid(True)
         plt.show()
+    # 用于画一些结果，可以根据需求自己改
 
 
 if __name__ == "__main__":
@@ -734,17 +742,17 @@ if __name__ == "__main__":
                         'B': np.mat([[0.5], [1]]),
                         'Q': np.mat([[1, 0], [0, 1]]),
                         'R': np.mat([[0.01]]),
-                        'n': 9,
-                        'T': 0.9,
-                        'd_t': 0.1}
+                        'n': 9,      # 模型预测控制步数
+                        'T': 0.9,    # 系统仿真总时间
+                        'd_t': 0.1}  # 系统采样时间
 
-    system_constraint = {'W': {'A': np.mat([[1, 0], [-1, 0], [0, 1], [0, -1]]),
+    system_constraint = {'W': {'A': np.mat([[1, 0], [-1, 0], [0, 1], [0, -1]]),  # 干扰的约束
                                'b': np.mat([[0.1, 0.1, 0.1, 0.1]])},
-                         'X': {'A': np.mat([[0, 1]]),
+                         'X': {'A': np.mat([[0, 1]]),                            # 状态的约束
                                'b': np.mat([[2]])},
-                         'U': {'max': 1, 'min': -1}}
+                         'U': {'max': 1, 'min': -1}}                             # 控制输入的约束
 
-    x_initial = [-5, -2]
+    x_initial = [-5, -2]  # 系统初始状态
 
     tube_mpc = TubeMPC(x_initial, system_parameter, system_constraint)
 
