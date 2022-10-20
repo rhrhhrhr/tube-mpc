@@ -262,7 +262,7 @@ class TubeMPC(Minkowski):
         # 用lqr方法求终端惩罚矩阵P和状态反馈矩阵K
         self.set = self.all_set_cal()
         # 计算所有用到的集合
-        self.result = self.ol_opt()
+        self.result = self.sys_sol()
         # 计算仿真结果
         self.t_list = [sys_para['d_t'] * num for num in range(0, int(sys_para['T'] / sys_para['d_t']))]
         # 产生时间序列用于画图
@@ -545,7 +545,7 @@ class TubeMPC(Minkowski):
         return p, k
     # 通过离散lqr计算出终端惩罚矩阵P和用来镇定实际状态和名义系统状态之差的矩阵K
 
-    def ol_opt(self):
+    def sys_sol(self):
         # x_ini是初值，
         z_num = self.set['Z']['A'].shape[0]
 
