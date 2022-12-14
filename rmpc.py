@@ -361,20 +361,10 @@ class TubeMPC(Minkowski):
     # 计算出满足x∈X-Z，Kx∈U-KZ的不等式组
 
     def xf_cal(self, d_a: np.matrix, d_b: np.matrix, a: np.matrix):
-        t = -1
-        status = False
-        a_cons, b_cons = 0, 0  # 没有意义，只是为了不出现警告
+        t = 0
+        a_cons, b_cons = d_a, d_b  # 初始状态
 
-        while not status:
-            t = t + 1
-            a_cons = np.mat(np.zeros((d_a.shape[0] * (t + 1), d_a.shape[1])))
-            b_cons = np.mat(np.zeros((1, d_a.shape[0] * (t + 1))))
-
-            for i in range(0, d_a.shape[0]):
-                for j in range(0, t + 1):
-                    a_cons[i * (t + 1) + j, :] = d_a[i, :] * a ** j
-                    b_cons[0, i * (t + 1) + j] = d_b[0, i]
-
+        while True:
             max_res = []
 
             for i in range(0, d_a.shape[0]):
@@ -382,14 +372,21 @@ class TubeMPC(Minkowski):
                 bounds = [(None, None)] * d_a.shape[1]
                 res = linprog(-c, A_ub=a_cons, b_ub=b_cons, bounds=bounds, method='revised simplex')
                 max_res.append(-res.fun)
+            # 检验Ot+1是否与Ot相等
 
-            status = status or ((np.mat(max_res) - d_b) <= 0).all()
+            t = t + 1
+            if ((np.mat(max_res) - d_b) <= 0).all():
+                break  # 若相等则跳出循环
+
+            a_cons = np.mat(np.vstack((a_cons, d_a * a ** t)))
+            b_cons = np.mat(np.hstack((b_cons, d_b)))
+            # 若不是则令Ot = Ot+1继续循环
 
         a_cons, b_cons = self.collinear(a_cons, b_cons)
         a_cons, b_cons = self.redundant_term(a_cons, b_cons)  # 得到结果后还需除去冗余项
         # 计算方法是增加t，直到Ot == Ot+1，于是有O∞ = Ot
         return a_cons, b_cons
-    # 计算终端约束区域Xf
+        # 计算终端约束区域Xf
 
     @staticmethod
     def mpc_m_build(a: np.matrix, n: int) -> np.matrix:
