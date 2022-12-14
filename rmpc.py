@@ -477,7 +477,7 @@ class TubeMPC(Minkowski):
         # [ 0  A_Uk][Uk]      [b_Uk]
         # a_bar, b_bar分别代表上面两个矩阵
 
-        for k in range(0, n):
+        for k in range(0, b.shape[1] * n):  # 这里控制输入u是几维就是几乘n
             pos_a = []
             pos_b = []
             neg_a = []
@@ -582,7 +582,6 @@ class TubeMPC(Minkowski):
         cost_fn = 0
 
         g = Z_A @ (ini[:n_states] - X[:, 0])  # 初值约束
-        # g = X[:, 0] - ini  # 初值约束
 
         for k in range(0, self.sys_para['n']):
             st = X[:, k]
@@ -632,8 +631,6 @@ class TubeMPC(Minkowski):
 
         lbg = ca.DM.zeros((n_states * self.sys_para['n'] + z_num + xf_num, 1))
         ubg = ca.DM.zeros((n_states * self.sys_para['n'] + z_num + xf_num, 1))
-        # lbg = ca.DM.zeros((n_states * self.sys_para['n'] + 2 + xf_num, 1))
-        # ubg = ca.DM.zeros((n_states * self.sys_para['n'] + 2 + xf_num, 1))
 
         for i in range(0, z_num):
             lbg[i] = -ca.inf
@@ -642,9 +639,6 @@ class TubeMPC(Minkowski):
         for i in range(0, xf_num):
             lbg[z_num + n_states * self.sys_para['n'] + i] = -ca.inf
             ubg[z_num + n_states * self.sys_para['n'] + i] = float(self.set['Xf']['b'][0, i])  # x(N)在终端区域内
-        '''for i in range(0, xf_num):
-            lbg[2 + n_states * self.sys_para['n'] + i] = -ca.inf
-            ubg[2 + n_states * self.sys_para['n'] + i] = float(self.set['Xf']['b'][0, i])  # x(N)在终端区域内'''
 
         args = {'lbg': lbg,
                 'ubg': ubg,
