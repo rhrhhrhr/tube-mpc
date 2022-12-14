@@ -4,6 +4,7 @@ from scipy import linalg as lin
 from math import *
 from matplotlib import pyplot as plt
 import casadi as ca
+import time
 
 
 class Poly:
@@ -97,7 +98,7 @@ class Poly:
             if float(a[i, 1]) == 0:
                 x = []
                 y = [-10 + 0.01 * i for i in range(0, int(20 / 0.01) + 1)]
-                for y_item in y:
+                for _ in y:
                     x.append(float(b[:, i]/a[i, 0]))
                 plt.plot(x, y)
             else:
@@ -157,37 +158,32 @@ class Remove(Poly):
         return new_a, new_b
     # 去除一个线性不等式矩阵(A,b)中共线的边
 
-    def redundant_term(self, a: np.matrix, b: np.matrix):
+    @staticmethod
+    def redundant_term(a: np.matrix, b: np.matrix):
         delete_line = []
+
         for i in range(0, a.shape[0]):
             c = a[i, :]
             bounds = [(None, None)] * c.shape[1]
             res = linprog(-c, A_ub=a, b_ub=b, bounds=bounds, method='revised simplex')
-            if (-res.fun) + 0.0001 < float(b[0, i]):  # 由于计算时会有误差，为了防止误判加上0.0001
+            if -res.fun + 0.0001 < float(b[0, i]):  # 由于计算时会有误差，为了防止误判加上0.0001
                 delete_line.append(i)
+            # 这里使用的方法是挑出A中某一行fi，计算fi*x在约束(A,b)上的最大值，如果这个值比fi对应的bi小，说明这项冗余，删除
+
+            else:
+                satisfy_edge = 0
+
+                for j in range(0, a.shape[0]):
+                    if satisfy_edge > a.shape[1]:
+                        delete_line.append(i)
+                        break
+
+                    elif 0.0001 > a[j, :] * np.mat(res.x).T - b[0, j] > -0.0001:
+                        satisfy_edge = satisfy_edge + 1
 
         new_a = np.mat(np.delete(a, delete_line, 0))
         new_b = np.mat(np.delete(b, delete_line, 1))
-        # 这里使用的方法是挑出A中某一行fi，计算fi*x在约束(A,b)上的最大值，如果这个值比fi对应的bi小，说明这项冗余，删除
         # 下面这些是用于去除刚好通过顶点的线，它们满足上面的条件，但只与区域有一个交点，便是顶点
-        # 下面写的这个方法只能用于判断二维
-        if a.shape[1] == 2:
-            new_a, new_b = self.edges_sort(new_a, new_b)  # 对边进行排序是为了让顶点顺序对应边的顺序
-            ver = self.vertex_cal(new_a, new_b)
-            c = np.hstack((new_a, new_b.T))
-            delete_line = []
-
-            for i in range(0, ver.shape[0] - 1):
-                if ((ver[i, :] - ver[i + 1, :]) < 0.0001).all() and ((ver[i, :] - ver[i + 1, :]) > -0.0001).all():
-                    delete_line.append(i + 1)
-
-            if ((ver[-1, :] - ver[0, :]) < 0.0001).all() and ((ver[-1, :] - ver[0, :]) > -0.0001).all():
-                delete_line.append(0)
-
-            c = np.delete(c, delete_line, 0)
-
-            new_a = np.mat(np.delete(c, -1, 1))
-            new_b = np.mat(c[:, -1].T)
 
         return new_a, new_b
     # 除去不等式组(A,b)中的冗余项，即找不到一个x使得小于等于号等号成立，或只有一个顶点满足等号成立
@@ -472,15 +468,15 @@ class TubeMPC(Minkowski):
         c = self.mpc_c_build(a, b, n)
         g, h = self.mpc_g_h_build(x_a, x_b, xf_a, xf_b, n)
         uk_a, uk_b = self.uk_a_b_build(u_inf, u_sup, n)
-        a = np.vstack((np.hstack((g * m, g * c)),
-                       np.hstack((np.mat(np.zeros((uk_a.shape[0], m.shape[1]))), uk_a))))
-        b = np.hstack((h, uk_b))
+        a_bar = np.vstack((np.hstack((g * m, g * c)),
+                           np.hstack((np.mat(np.zeros((uk_a.shape[0], m.shape[1]))), uk_a))))
+        b_bar = np.hstack((h, uk_b))
         # 这里先求出了M，C矩阵，于是知道了Xk = M*x + C*Uk，之后将约束条件转化为G*Xk <= h，再包含A_Uk*Uk <= b_Uk
         # 于是有
         # [G*M G*C ][x ]      [h   ]
         # [        ][  ]  <=  [    ]
         # [ 0  A_Uk][Uk]      [b_Uk]
-        # a, b分别代表上面两个矩阵
+        # a_bar, b_bar分别代表上面两个矩阵
 
         for k in range(0, n):
             pos_a = []
@@ -490,16 +486,16 @@ class TubeMPC(Minkowski):
             zero_a = []
             zero_b = []
 
-            for i in range(0, a.shape[0]):
-                if a[i, -1] > 0:
-                    pos_a.append((a[i, :-1] / a[i, -1]).tolist()[0])
-                    pos_b.append(b[0, i] / a[i, -1])
-                elif a[i, -1] < 0:
-                    neg_a.append((a[i, :-1] / (-a[i, -1])).tolist()[0])
-                    neg_b.append(b[0, i] / (-a[i, -1]))
+            for i in range(0, a_bar.shape[0]):
+                if a_bar[i, -1] > 0:
+                    pos_a.append((a_bar[i, :-1] / a_bar[i, -1]).tolist()[0])
+                    pos_b.append(b_bar[0, i] / a_bar[i, -1])
+                elif a_bar[i, -1] < 0:
+                    neg_a.append((a_bar[i, :-1] / (-a_bar[i, -1])).tolist()[0])
+                    neg_b.append(b_bar[0, i] / (-a_bar[i, -1]))
                 else:
-                    zero_a.append(a[i, :-1].tolist()[0])
-                    zero_b.append(b[0, i])
+                    zero_a.append(a_bar[i, :-1].tolist()[0])
+                    zero_b.append(b_bar[0, i])
 
             pos_a = np.mat(pos_a)
             pos_b = np.mat([pos_b])
@@ -523,12 +519,14 @@ class TubeMPC(Minkowski):
             new_a = np.mat(new_a)
             new_b = np.mat([new_b])
 
-            a, b = self.all_zero(new_a, new_b)
-            a, b = self.collinear(a, b)
-            a, b = self.redundant_term(a, b)
+            a_bar, b_bar = self.all_zero(new_a, new_b)
+            a_bar, b_bar = self.collinear(a_bar, b_bar)
+            a_bar, b_bar = self.redundant_term(a_bar, b_bar)
+
         # 以上是傅里叶-莫茨金消元法
 
-        return a, b
+        return a_bar, b_bar
+
     # 求解可行域，主要思路是构造满足条件的关于x，Uk的不等式组，通过Xk = M*x + C*Uk建立关系，之后利用傅里叶-莫茨金消元法
     # 将不等式组投影到x的平面上，便知道了使优化问题有解的x的取值范围
 
@@ -546,7 +544,6 @@ class TubeMPC(Minkowski):
     # 通过离散lqr计算出终端惩罚矩阵P和用来镇定实际状态和名义系统状态之差的矩阵K
 
     def sys_sol(self):
-        # x_ini是初值，
         z_num = self.set['Z']['A'].shape[0]
 
         xf_num = self.set['Xf']['A'].shape[0]
@@ -586,6 +583,7 @@ class TubeMPC(Minkowski):
         cost_fn = 0
 
         g = Z_A @ (ini[:n_states] - X[:, 0])  # 初值约束
+        # g = X[:, 0] - ini  # 初值约束
 
         for k in range(0, self.sys_para['n']):
             st = X[:, k]
@@ -613,8 +611,8 @@ class TubeMPC(Minkowski):
             'ipopt': {
                 'max_iter': 2000,
                 'print_level': 0,
-                'acceptable_tol': 1e-12,
-                'acceptable_obj_change_tol': 1e-10
+                'acceptable_tol': 1e-8,
+                'acceptable_obj_change_tol': 1e-6
             },
             'print_time': 0
         }  # 求解优化时的设置
@@ -635,6 +633,8 @@ class TubeMPC(Minkowski):
 
         lbg = ca.DM.zeros((n_states * self.sys_para['n'] + z_num + xf_num, 1))
         ubg = ca.DM.zeros((n_states * self.sys_para['n'] + z_num + xf_num, 1))
+        # lbg = ca.DM.zeros((n_states * self.sys_para['n'] + 2 + xf_num, 1))
+        # ubg = ca.DM.zeros((n_states * self.sys_para['n'] + 2 + xf_num, 1))
 
         for i in range(0, z_num):
             lbg[i] = -ca.inf
@@ -643,6 +643,9 @@ class TubeMPC(Minkowski):
         for i in range(0, xf_num):
             lbg[z_num + n_states * self.sys_para['n'] + i] = -ca.inf
             ubg[z_num + n_states * self.sys_para['n'] + i] = float(self.set['Xf']['b'][0, i])  # x(N)在终端区域内
+        '''for i in range(0, xf_num):
+            lbg[2 + n_states * self.sys_para['n'] + i] = -ca.inf
+            ubg[2 + n_states * self.sys_para['n'] + i] = float(self.set['Xf']['b'][0, i])  # x(N)在终端区域内'''
 
         args = {'lbg': lbg,
                 'ubg': ubg,
@@ -662,6 +665,8 @@ class TubeMPC(Minkowski):
         cat_controller_controls = []  # 控制器内状态
 
         for k in range(0, int(self.sys_para['T'] / self.sys_para['d_t'])):
+            # start = time.time()
+
             args['p'] = ca.vertcat(state_ini)  # 每一时刻都把实际状态作为优化问题的参数传回去
             args['x0'] = ca.vertcat(ca.reshape(X0, n_states * (self.sys_para['n'] + 1), 1),
                                     ca.reshape(u0, n_controls * self.sys_para['n'], 1))
@@ -675,6 +680,10 @@ class TubeMPC(Minkowski):
                 ubg=args['ubg'],
                 p=args['p']
             )
+
+            # end = time.time()
+
+            # print(end - start)
 
             u = ca.reshape(sol['x'][n_states * (self.sys_para['n'] + 1):], n_controls, self.sys_para['n'])  # 控制器内预测的控制输入
             X0 = ca.reshape(sol['x'][: n_states * (self.sys_para['n'] + 1)], n_states, self.sys_para['n'] + 1)  # 控制器内预测的状态
@@ -722,7 +731,7 @@ class TubeMPC(Minkowski):
             plt.show()'''
         # 这一段是画控制器内预测的状态
         '''for item in range(0, len(self.result['predicted state'])):
-            plt.plot(self.result['predicted state'][item][0], self.result['predicted state'][item][1], '-.')'''
+            plt.plot(self.result['predicted state'][item][0], self.result['predicted state'][item][1], 'r')'''
 
         plt.plot(self.result['real state 1'][:-1], self.result['real state 2'][:-1], '--')
         plt.plot(self.result['nominal state 1'][1:], self.result['nominal state 2'][1:])
