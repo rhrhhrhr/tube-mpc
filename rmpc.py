@@ -4,7 +4,6 @@ from scipy import linalg as lin
 from math import *
 from matplotlib import pyplot as plt
 import casadi as ca
-import time
 
 
 class Poly:
