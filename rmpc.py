@@ -163,22 +163,15 @@ class Remove(Poly):
 
         for i in range(0, a.shape[0]):
             c = a[i, :]
+            a_bar = np.mat(np.delete(a, i, 0))
+            b_bar = np.mat(np.delete(b, i, 1))
             bounds = [(None, None)] * c.shape[1]
             res = linprog(-c, A_ub=a, b_ub=b, bounds=bounds, method='revised simplex')
-            if -res.fun + 0.0001 < float(b[0, i]):  # 由于计算时会有误差，为了防止误判加上0.0001
+            res_bar = linprog(-c, A_ub=a_bar, b_ub=b_bar, bounds=bounds, method='revised simplex')
+
+            if 0.0001 > res.fun - res_bar.fun > -0.0001:
                 delete_line.append(i)
-            # 这里使用的方法是挑出A中某一行fi，计算fi*x在约束(A,b)上的最大值，如果这个值比fi对应的bi小，说明这项冗余，删除
-
-            else:
-                satisfy_edge = 0
-
-                for j in range(0, a.shape[0]):
-                    if satisfy_edge > a.shape[1]:
-                        delete_line.append(i)
-                        break
-
-                    elif 0.0001 > a[j, :] * np.mat(res.x).T - b[0, j] > -0.0001:
-                        satisfy_edge = satisfy_edge + 1
+            # 有它没它都一样的话，说明该项冗余
 
         new_a = np.mat(np.delete(a, delete_line, 0))
         new_b = np.mat(np.delete(b, delete_line, 1))
@@ -383,7 +376,7 @@ class TubeMPC(Minkowski):
             # 若不是则令Ot = Ot+1继续循环
 
         a_cons, b_cons = self.collinear(a_cons, b_cons)
-        a_cons, b_cons = self.redundant_term(a_cons, b_cons)  # 得到结果后还需除去冗余项
+        a_cons, b_cons = self.redundant_term(a_cons, b_cons)  # 得到结果后还需除去共线和冗余项
         # 计算方法是增加t，直到Ot == Ot+1，于是有O∞ = Ot
         return a_cons, b_cons
         # 计算终端约束区域Xf
